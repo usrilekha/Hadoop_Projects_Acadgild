@@ -1,0 +1,89 @@
+Question : Create FLUME job for fetching log files from spool directory the data
+********************************************************************************
+
+To import file from local file system, 
+
+1. Create a folder in hadoop to store the data.
+2. Get the data from local by setting the input data path in the config file.
+2. Change the config file as per the requirement.
+
+flume-ng agent -n agent -f /usr/local/flume/conf/exe.conf
+hadoop fs -mkdir /user/flume/MainProject
+
+
+Problem statement 1 : Find out the districts who achieved 100 percent objective in BPL cards
+********************************************************************************************
+
+Loads the XML
+*************
+a = load '/user/flume/MainProject/StatewiseDistrictwisePhysicalProgress.xml' using org.apache.pig.piggybank.storage.XMLLoader('row') as (doc:chararray);
+
+
+Writes each <row> tag into a single line or tuple
+*************************************************
+b = foreach a generate REPLACE(doc,'[\\n]','') as doc;
+
+
+Now parse the tags of each row and write only the values inside the tags
+************************************************************************
+c = foreach b generate REGEX_EXTRACT_ALL(doc,'.*(?:<State_Name>)([^<]*).*(?:<District_Name>)([^<]*).*(?:<Project_Objectives_IHHL_BPL>)([^<]*).*(?:<Project_Performance-IHHL_BPL>)([^<]*).*');
+
+
+Flatten to write each row as a single tupe
+******************************************
+d = foreach c generate FLATTEN($0);
+
+
+Filter based on the respective condition
+****************************************
+e = filter d by $3>=$2
+
+
+Store it in a hdfs
+******************
+store e into '/user/flume/MainProject/Result' using PigStorage(',');
+
+Create table in DB for storing the result
+*****************************************
+
+
+Sqoop command to export data into mysql
+***************************************
+sqoop export --connect jdbc:mysql://localhost/test --table STATEWISE_DATA_RESULT --fields-terminated-by '*' --export-dir /user/flume/MainProject/Result/part-m-00000;
+
+Problem statement 2 : Write a Pig UDF to filter the districts who have reached 80% of objectives of BPL cards.
+Export the results to mysql using sqoop.
+*****************************************************************************************
+
+Loads the XML
+*************
+a = load '/user/flume/MainProject/StatewiseDistrictwisePhysicalProgress.xml' using org.apache.pig.piggybank.storage.XMLLoader('row') as (doc:chararray);
+
+
+Writes each <row> tag into a single line or tuple
+*************************************************
+b = foreach a generate REPLACE(doc,'[\\n]','') as doc;
+
+
+Now parse the tags of each row and write only the values inside the tags
+************************************************************************
+c = foreach b generate REGEX_EXTRACT_ALL(doc,'.*(?:<State_Name>)([^<]*).*(?:<District_Name>)([^<]*).*(?:<Project_Objectives_IHHL_BPL>)([^<]*).*(?:<Project_Performance-IHHL_BPL>)([^<]*).*');
+
+
+Flatten to write each row as a single tupe
+******************************************
+d = foreach c generate FLATTEN($0);
+
+Store it in HDFS since we are going to use it in UDF
+****************************************************
+store d into '/user/flume/MainProject/Parsed_Data' using PigStorage(',');
+
+
+REGISTER /home/acadgild/workspace/District.jar;
+
+A = load '/user/flume/MainProject/Parsed_Data/part-m-00000' using PigStorage(',') as(state:chararray,district:chararray,objective:int,achieved:int);
+B = foreach A generate Calc.District(state,district,objective,achieved) as CAL;
+C = filter B by CAL!='';
+
+sqoop export --connect jdbc:mysql://localhost/test --table RESULT_80 --fields-terminated-by '*' --export-dir /user/flume/MainProject/Result_80/part-m-00000;
+
